@@ -1,0 +1,204 @@
+---
+title: Linear Regression, Part 1
+jupyter:
+  jupytext:
+    text_representation:
+      extension: .qmd
+      format_name: quarto
+      format_version: '1.0'
+      jupytext_version: 1.17.0
+  kernelspec:
+    display_name: base
+    language: python
+    name: python3
+---
+
+
+In this notebook, we'll review the big ideas behind **linear regression**. 
+
+Linear regression involves a **target variable** (also called the **dependent variable**) and some number of **explanatory variables** (also known as **independent variables** or **predictors**). We want to estimate the effect of the explanatory variables on the **mean** of the target variable, allowing us to understand how changes in the predictors influence the outcome.
+
+For this notebook, we'll be using the [possum dataset](https://www.openintro.org/data/index.php?data=possum) from the OpenIntro Statistics textbook. We'll be using the total length (total_l) variable as our target.
+
+
+```{python}
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+```
+
+```{python}
+possums = pd.read_csv("../data/possum.csv")
+possums.head()
+```
+
+Let's start by using the tail length (tail_l) as our predictor variable.
+
+For linear regression, we assume that the mean value of the total length can be estimated using a linear function of the predictor variables:
+
+$$Mean(total_l) = \beta_0 + \beta_1(tail_l)$$
+
+To see if this looks plausible, let's inspect a scatterplot.
+
+```{python}
+possums.plot(kind="scatter", x="tail_l", y="total_l");
+```
+
+**Question:** Does the model above look reasonable?
+
+- *the shape vaguely looks like a positive association between the two variables.*
+
+Now, we need to estimate the values of the coefficients, $\beta_0$ and $\beta_1$. For this, we'll use the statsmodels library.
+
+```{python}
+import statsmodels.formula.api as smf
+```
+
+To specify our model, we need to use a [patsy formula](https://patsy.readthedocs.io/en/latest/formulas.html). The recipe is `target variable ~ predictor variables`.
+
+We'll use the `ols` function and go ahead and fit the model. (ols = ordinary least squares)
+
+```{python}
+lr_total_tail = smf.ols("total_l ~ tail_l", data=possums).fit()
+```
+
+To see the results, we can inspect the params.
+
+```{python}
+lr_total_tail.params
+```
+
+Substituting these estimates into the model, we get
+
+$$Mean(total_l) = 41.037130 + 1.244307(tail_l)$$
+
+**Question:** How do we interpret the meaning of the coefficint for the tail length (if tail length and total length are measured in cm)?
+
+- *increasing the tail length by one unit increases the total length by an average of 1.244... units. Positive valvue indicates positive association between variables*
+
+If we want to overlay the estimates on the scatterplot, we can use the predict method. We need to provide a DataFrame that has the correct columns.
+
+```{python}
+pred_df = pd.DataFrame(
+    {
+        'tail_l': np.linspace(start=possums['tail_l'].min(), stop=possums['tail_l'].max())
+    }
+)
+
+pred_df['mean_estimate'] = lr_total_tail.predict(pred_df)
+
+pred_df.head(2)
+```
+
+Let's verify the first estimate.
+
+```{python}
+tail_l = 32
+estimate = lr_total_tail.params['Intercept'] + lr_total_tail.params['tail_l']*tail_l
+estimate
+```
+
+Now, let's plot the estimates with the original dataset.
+
+```{python}
+fig, ax = plt.subplots()
+possums.plot(kind="scatter", x="tail_l", y="total_l", ax=ax)
+pred_df.plot(kind="line", x="tail_l", y="mean_estimate", color="red", ax=ax);
+```
+
+### Inference for Linear Regression
+
+At this point, it is important to remember that the coefficients that we got are merely **estimates**, which means that there is inherent **uncertainty** in those values. 
+
+A common way to quantify this uncertainty is through a **confidence interval**, which gives a plausible range of values for the estimated parameters, given the observed data.
+
+We can view the confidence interval for the estimates by inspecting the model summary output.
+
+```{python}
+lr_total_tail.summary()
+```
+
+This says that, given the observed data, it is plausible that the effect of a one-unit change in tail_l could be as small as 0.888 or as large as 1.601.
+
+We might also ask whether the effect of tail_l is **statistically significant** or is the observed effect could be attributed solely to random **sampling error**.
+
+This can be done either by checking whether the confidence interval contains 0 or by inspecting the p-value associated with tail_l. Since the p-value is small, we can conclude that the effect is statistically significant.
+
+### Assumptions of Linear Regression
+
+In order to rely on the confidence interval and p-values, we do need to check the assumptions of linear regression. 
+
+The assumptions can be remembered using the acronym LINE:
+
+* There is a **L**inear relationship between the predictors and mean of the target.
+* The errors are **I**ndependent.
+* The errors are **N**ormally distributed.
+* The errors have **E**qual variance.
+
+The first one we can check by inspecting the scatterplot of the predictors against the target variable.
+
+The second assumption has more to do with understanding the data generation process. In this case, if we assume that we are working with a simple random sample, we can feel good that it is satisfied.
+
+For the third and fourth, we can inspect a plot of the errors.
+
+```{python}
+plt.scatter(lr_total_tail.fittedvalues, lr_total_tail.resid);
+```
+
+- *want to see no pattern.*
+
+```{python}
+plt.hist(lr_total_tail.resid);
+```
+
+```{python}
+import statsmodels.stats.api as sms
+```
+
+To test for normality, we'll use the [Jarque-Bera test](https://www.statsmodels.org/dev/generated/statsmodels.stats.stattools.jarque_bera.html).
+
+The Jarque-Bera test statistic tests the null that the data is normally distributed against an alternative that the data follow some other distribution.
+
+```{python}
+sms.jarque_bera(lr_total_tail.resid)
+```
+
+The second component is the p-value. In this case, there is not enough evidence to conclude that the residuals are non-normal.
+
+To test that there is equal variability in the residuals, we can use the [Breusch-Pagan Lagrange Multiplier test](https://www.statsmodels.org/stable/generated/statsmodels.stats.diagnostic.het_breuschpagan.html) for heteroscedasticity which tests the hypothesis that the residual variance does not depend on the predictor variables.
+
+```{python}
+sms.het_breuschpagan(lr_total_tail.resid, lr_total_tail.model.exog)
+```
+
+Again, the p-value is the second component. We don't have enough evidence to conclude that this assumption is violated.
+
+### Goodness of Fit
+
+Another way we can analyze our model is by looking at the **goodness of fit** or how well the model's predicted values matched the observed data.
+
+One way we can measure this is the **R-squared** value, which compares the variance of the residuals to the variance in the target variable. It is the proportion by which the variability in the target is reduced by using the estimate from the model. It is often phrased as the proportion of the variability in the target that could be **explained** by the predictor variables.
+
+We can calculate it ourselves:
+
+```{python}
+possums['total_l'].var()
+```
+
+```{python}
+lr_total_tail.resid.var()
+```
+
+- *this looks like an approximate reduction of about 1/3*
+
+```{python}
+(possums['total_l'].var() - lr_total_tail.resid.var()) / possums['total_l'].var()
+```
+
+Or by inspecting the rsquared attribute.
+
+```{python}
+lr_total_tail.rsquared
+```
+
+A model that has no residuals would have an R-squared value of 1 and a model which estimates using the overall mean would have an R-squared value of 0.
